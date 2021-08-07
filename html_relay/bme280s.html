@@ -1,0 +1,336 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>BME280s</title>
+<script src="js/jquery-1.8.3.min.js"></script>
+<!--[if lte IE 8]><script src="js/excanvas.min.js"></script><![endif]-->
+<script src="js/jquery.flot.min.js"></script>
+<script src="js/jquery.flot.tooltip.min.js"></script>
+<script type="text/javascript">
+//<!--
+
+	var rooms = [];
+	var timerId = [];
+
+	$( function() {
+		$.getJSON( './rooms.json', (data) => {
+			console.log( 'rooms: ', data );
+			rooms = data;
+			initialize();
+		} );
+	} );
+
+	function initialize() {
+//		var html = '';
+		for ( var no = 0; no < rooms.length; no ++ ) {
+			if ( !rooms[no].url ) continue;
+			var html = '<tr><th colspan=2 align=left><span class="roomname">' + rooms[no].name + '</span></th></tr>' +
+					'<tr>' +
+					'<td valign=top>' +
+					'<table height=246 border=0 cellpadding=0 cellspacing=0>' +
+					'<tr><th class="realtitle">温度(℃)</th><td class="realvalue"> &nbsp;<span id="temp' + no + '"></span> &nbsp;</td></tr>' +
+					'<tr><th class="realtitle">湿度(％)</th><td class="realvalue"> &nbsp;<span id="humid' + no + '"></span> &nbsp;</td></tr>' +
+					'<tr><th class="realtitle">暑さ指数(℃)</th><td class="realvalue"> &nbsp;<span id="wbgt' + no + '"></span> &nbsp;</td></tr>' +
+					'<tr><th class="realtitle">気圧(hPa)</th><td class="realvalue"> &nbsp;<span id="press' + no + '"></span> &nbsp;</td></tr>' +
+					//'<tr><th class="realtitle">CO<sub>2</sub>(ppm)</th><td class="realvalue"> &nbsp;<span id="co2' + no + '"></span> &nbsp;</td></tr>' +
+					'</table>' +
+					'</td>' +
+					'<td><select id="filelist' + no + '"></select>&nbsp; &nbsp; <input type="button" id="prev' + no + '" value="前日">' +
+					'<input type="button" id="next' + no + '" value="翌日"><br/>' +
+					'<div id="graph' + no + '" style="font-size:10px;width:600px;height:220px"></div></td>' +
+					'</tr>';
+			$('#tbody').append( html );
+			getcurrent(no);
+			getfilelist(no);
+			//console.log( html );
+
+			$( '#filelist' + no ).on( 'change', function() {
+				var no = this.id.substring(8);
+				var date = $( this ).val().replace( /\//g, '' );
+				var data = {
+					TYPE: 'LOGDATA',
+					DATE: date,
+					REQUEST_URL: rooms[no].url + 'flask/getlogdata'
+				};
+				var url = '/flask/proxyproc';
+				http_request( url,
+								data,
+								function( response ) {
+									//console.log( response );
+									plotdata( no, response );
+									if ( timerId[no] ) clearTimeout( timerId[no] );
+									timerId[no] = setTimeout( function() {
+													$( '#filelist' + no ).trigger( 'change' )
+												},	240000 );
+								},
+								function( response ) {
+									console.log( response );
+								} );
+			} );
+		}
+
+		$( '[id^="prev"]' ).on( 'click', function() {
+			var no = this.id.substring(4);
+			//console.log( 'prev' );
+			var sel_log = document.getElementById( 'filelist' + no );
+			if( ( sel_log.selectedIndex + 1 ) < sel_log.options.length ) {
+				sel_log.selectedIndex ++;
+				$( '#filelist' + no ).trigger( 'change' )
+			}
+		} );
+
+		$( '[id^="next"]' ).on( 'click', function() {
+			var no = this.id.substring(4);
+			//console.log( 'next' );
+			var sel_log = document.getElementById( 'filelist' + no );
+			if( sel_log.selectedIndex != 0 ) {
+				sel_log.selectedIndex --;
+				$( '#filelist' + no ).trigger( 'change' )
+			}
+		} );
+	}
+
+	function getfilelist(no) {
+		var data = {
+			TYPE: 'FILELIST',
+			REQUEST_URL: rooms[no].url + 'flask/getlogdata'
+		};
+		var url = '/flask/proxyproc';
+		http_request( url,
+						data,
+						function( response ) {
+							//console.log( response );
+							for ( var n = 0; n < response.length; n ++ ) {
+								$( '#filelist' + ( no ) ).append( $( '<option>' ).text( response[n] ) );
+							}
+							$( '#filelist' + ( no ) ).trigger( 'change' )
+						},
+						function( response ) {
+							console.log( response );
+						} );
+	}
+
+	function getcurrent(no) {
+		var url = '/flask/proxyproc';
+		var data = {
+			TYPE: 'CURRENT',
+			REQUEST_URL: rooms[no].url + 'flask/getlogdata'
+		};
+		http_request( url,
+						data,
+						function( response ) {
+							//console.log( response );
+							//	日生気誌 50(4):147-157, 2014
+							//	通常観測気象要素を用いた WBGT（湿球黒球温度）の推定
+							//	風速・全天日射量は０とする
+							var wbgt = 0.735 * response.temp + 0.0374 * response.humid + 0.00292 * response.temp * response.humid - 4.064;
+							//	改良型　https://bokunimo.net/
+							//var wbgt = 0.725 * response.temp + 0.0368 * response.humid + 0.00364 * response.temp * response.humid - 3.246;
+							var color = 'black';
+							var back = '';
+							var title = 'ほぼ安全';
+							if ( wbgt >= 31 ) {
+								color = 'white';
+								back = 'red';
+								title = '危険';
+							} else if ( wbgt >= 28 ) {
+								back = 'orange';
+								title = '厳重警戒';
+							} else if ( wbgt >= 25 ) {
+								back = 'yellow';
+								title = '警戒';
+							} else if ( wbgt >= 21 ) {
+								back = 'aqua';
+								title = '注意';
+							}
+							wbgt = String( Math.round( wbgt * 100 ) / 100. );
+							if ( wbgt.indexOf( '.' ) < 0 ) wbgt += '.';
+							wbgt += '00';
+							var pos = wbgt.indexOf( '.' );
+							wbgt = wbgt.substring( 0, pos + 3 );
+							$( '#temp' + no ).text( response.temp );
+							$( '#humid' + no ).text( response.humid );
+							$( '#press' + no ).text( response.press );
+							if ( true ) {
+								$( '#wbgt' + no ).text( title );
+								//$( '#wbgt' + no ).parent().css( 'background-color', back );
+								$( '#wbgt' + no ).css( 'background-color', back );
+								$( '#wbgt' + no ).css( 'color', color );
+								$( '#wbgt' + no ).attr( 'title', wbgt + '℃' );
+							} else {
+								$( '#wbgt' + no ).text( wbgt );
+								////$( '#wbgt' + no ).parent().css( 'background-color', back );
+								$( '#wbgt' + no ).css( 'background-color', back );
+								$( '#wbgt' + no ).css( 'color', color );
+								$( '#wbgt' + no ).attr( 'title', title );
+							}
+							setTimeout( function() {
+											getcurrent(no);
+										}, 4000 );
+						},
+						function( response ) {
+							console.log( response );
+						} );
+	}
+
+	function plotdata( no, response ) {
+		var temp = [];
+		var humid = [];
+		var press = [];
+
+		for( var time in response ) {
+			var tm = time.split( ':' );
+			var ms = ( parseFloat( tm[0] ) * 3600 +
+							parseFloat( tm[1] ) * 60 +
+							parseFloat( tm[2] ) ) * 1000;
+			temp[temp.length] = [ms, response[time][0]];
+			humid[humid.length] = [ms, response[time][1]];
+			press[press.length] = [ms, response[time][2]];
+		}
+		var options = {
+			grid: {
+				hoverable: true,
+				backgroundColor: 'white'
+			},
+			xaxis: {
+				min : 0, max : 24 * 3600000,
+				mode: 'time', timeformat: '%h:%M'
+			},
+			yaxes: [
+				{
+					panRange: false,
+					min: 15,
+					max: 40,
+					tickFormatter: function( val, axis ) {
+						return val + '℃';
+					}
+				},
+				{
+					panRange: false,
+					min: 20,
+					max: 70,
+					//alignTicksWithAxis: 'right',
+					//position: "right",
+					tickFormatter: function( val, axis ) {
+						return val + '%';
+					}
+				},
+				{
+					panRange: false,
+					min: 990,
+					max: 1015,
+					alignTicksWithAxis: "right",
+					position: "right",
+					tickFormatter: function( val, axis ) {
+						return val + 'hPa';
+					}
+				}
+			],
+			tooltip: {
+				show: true,
+				content: "%s: %y (%x)",
+				//xDateFormat: "%y-%0m-%0d",
+				onHover: function(flotItem, $tooltipEl) {
+					//console.log(flotItem, $tooltipEl);
+				}
+			},
+			legend: {
+				position:'sw',
+				noColumns: 3
+			}
+		}
+		var plot = $.plot( $("#graph" + no),
+				[
+					{	label: "温度", data: temp, lines: { show: true }, points: { show: false } },
+					{	label: "湿度", data: humid, lines: { show: true }, points: { show: false }, yaxis: 2 },
+					{	label: "気圧", data: press, lines: { show: true }, points: { show: false }, yaxis: 3 },
+				],
+				options
+			);
+		plot.draw();
+	}
+
+	function http_request( url, data, succeed, failed ) {
+		jQuery.ajax( { type: "POST",
+						url: url,
+						data: data,
+						//crossDomain: true,
+						success: function( response ) {
+							//console.log( response );
+							succeed( response );
+						},
+						error: function( XMLHttpRequest, textStatus, errorThrown ) {
+							console.log( XMLHttpRequest );
+							//failed( XMLHttpRequest.statusText );
+							var e = XMLHttpRequest.responseText;
+							if ( e.match( /<title>([\s\S]+)<\/title>[\s\S]+<body>([\s\S]+)<\/body>/ ) ) {
+								e = RegExp.$1 + RegExp.$2;
+								e = e.replace( '<p>', '' )
+								e = e.replace( '</p>', '' )
+								e = e.replace( '<h1>', '' )
+								e = e.replace( '</h1>', '' )
+								failed( e );
+							} else {
+								failed( $('<div/>').text(e).html() );
+							}
+						}
+					} );
+	}
+//-->
+</script>
+<style type="text/css">
+<!--
+	body {
+		font-size: 12px;
+		background-color: #eee;	/**/
+		color: black;
+		margin: 2;
+	}
+	select {
+		font-size: 10px;
+	}
+	input[type="button"] {
+		font-size: 10px;
+	}
+	table {
+		font-size: 12px;
+	}
+	th {
+		white-space: nowrap;
+		font-size: 14px;
+		padding-left: 4px;
+		background-color: white;
+	}
+	td {
+		white-space: nowrap;
+		padding-left: 4px;
+		padding-right: 4px;
+		background-color: white;
+	}
+	.roomname {
+		color: blue;
+	}
+	.realtitle {
+		text-align: right;
+	}
+	.realvalue {
+		text-align: right;
+		font-weight: bold;
+		white-space: nowrap;
+		font-size: 24px;
+	}
+	*[id^='wbgt']{
+		padding: 4px 12px;
+		text-align: center;
+	}
+-->
+</style>
+</head>
+<body>
+<table border=1 cellpadding=0 cellspacing=0>
+<thead></thead>
+<tbody id="tbody"></tbody>
+</table>
+</body>
+</html>
