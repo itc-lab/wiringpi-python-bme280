@@ -98,7 +98,8 @@ except Exception as e:
     sys.exit()
 
 if not os.path.exists(LOG_DIR):
-    os.mkdir(LOG_DIR, 755)
+    os.mkdir(LOG_DIR)
+    os.chmod(LOG_DIR, 0o755)
 lcd = Lcd1602(0x27)
 
 signal.signal(
