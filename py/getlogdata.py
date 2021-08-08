@@ -61,5 +61,4 @@ def getlogdata():
             "humid": val[3],
             "press": val[4],
         }
-    print(result)
     return jsonify(result)
