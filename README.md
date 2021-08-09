@@ -16,6 +16,8 @@ It also has a function to display temperature, humidity and barometric pressure 
 
 ## Getting Started
 
+日本語が読める方は、　リンク：[BME280で取得した温湿度気圧をWeb画面に表示する(python,wiringpi,apache) - ITC Engineering Blog](https://itc-engineering-blog.netlify.app/blogs/wiringpi-python-bme280)　を参考にインストールしてください。(Japanese text only)
+
 ### Install apache2 & mod_wsgi
 
 ```
@@ -32,17 +34,32 @@ apt install libcurl4-openssl-dev libssl-dev
 pip3 install pycurl
 ```
 
-### Logging
+### Data Logging
 
 ```
 cd opt
-python3 bme280.py
+cp -p bme280.py bme280_inc.py lcd1602_inc.py /opt/
+cd /opt
+chmod 755 bme280.py
+./bme280.py
 ```
 
 To stop
 
 ```
-python3 bme280.py stop
+./bme280.py stop
+```
+
+To run automatically at startup
+
+```
+vi /etc/rc.local
+```
+
+Add `/opt/bme280.py` before `exit 0`.
+```
+/opt/bme280.py
+exit 0
 ```
 
 ### Web - single node
@@ -54,7 +71,7 @@ mkdir /var/www/flask
 cp py/app.wsgi /var/www/flask/
 cp py/app.py /var/www/flask/
 cp py/getlogdata.py /var/www/flask/
-chown -R www-data:www-data /var/www/html /var/www/flask
+chown -R www-data:www-data /var/www/html /var/www/flask /var/log/bme280log
 ```
 
 ```
@@ -99,7 +116,7 @@ https://localhost/bme280.html
 Install on a different server than the single node.
 
 ```
-cp html_relay/bme280s.html rooms.json /var/www/html/
+cp html_relay/bme280s.html html_relay/rooms.json /var/www/html/
 cp -r js /var/www/html/
 mkdir /var/www/flask
 cp py_relay/app_relay.wsgi /var/www/flask/
